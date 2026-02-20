@@ -71,7 +71,7 @@ func run() error {
 func matchNode(nodes []hosts.Node, arg string) *hosts.Node {
 	lower := strings.ToLower(arg)
 	for i, n := range nodes {
-		if strings.HasPrefix(strings.ToLower(n.Hostname), lower) {
+		if strings.HasPrefix(strings.ToLower(n.Name), lower) {
 			return &nodes[i]
 		}
 		if strings.EqualFold(n.Address, arg) {

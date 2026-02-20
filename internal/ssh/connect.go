@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/misael/vibessh/internal/tailscale"
+	"github.com/misael/vibessh/internal/hosts"
 )
 
 const (
@@ -34,18 +34,20 @@ func ConnectFlags(ctrlDir string) []string {
 	}
 }
 
-// Connect SSHes into the given node using its Tailscale IP.
-func Connect(node tailscale.Node) error {
-	target := node.IP.String()
-	if !node.IP.IsValid() {
-		// Fall back to DNS name if no IP is available.
-		if node.DNSName != "" {
-			target = node.DNSName
-		} else {
-			target = node.Hostname
-		}
+// Connect SSHes into the given node using its configured address.
+func Connect(node hosts.Node) error {
+	target := node.Address
+
+	if node.User != "" {
+		target = node.User + "@" + target
 	}
-	return connectTo(target)
+
+	args := []string{}
+	if node.Port != 0 && node.Port != 22 {
+		args = append(args, "-p", fmt.Sprintf("%d", node.Port))
+	}
+
+	return connectTo(target, args...)
 }
 
 // ConnectRaw SSHes to an arbitrary target string (hostname, IP, user@host, etc.).
@@ -53,7 +55,7 @@ func ConnectRaw(target string) error {
 	return connectTo(target)
 }
 
-func connectTo(target string) error {
+func connectTo(target string, extraArgs ...string) error {
 	ctrlDir, err := controlDir()
 	if err != nil {
 		return err
@@ -69,6 +71,7 @@ func connectTo(target string) error {
 
 	args := []string{"ssh"}
 	args = append(args, ConnectFlags(ctrlDir)...)
+	args = append(args, extraArgs...)
 	args = append(args, target)
 
 	return syscall.Exec(sshBin, args, os.Environ())

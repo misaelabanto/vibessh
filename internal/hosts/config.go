@@ -1,6 +1,7 @@
 package hosts
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// ErrNoConfig is returned by Load when the config file does not exist.
+var ErrNoConfig = errors.New("no config file")
 
 // Node represents a host entry from the config file.
 type Node struct {
@@ -34,7 +38,7 @@ func Load() ([]Node, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("config not found: create ~/.vibessh/hosts.yaml — see README")
+			return nil, ErrNoConfig
 		}
 		return nil, fmt.Errorf("read config: %w", err)
 	}
@@ -44,13 +48,44 @@ func Load() ([]Node, error) {
 		return nil, fmt.Errorf("parse ~/.vibessh/hosts.yaml: %w", err)
 	}
 
-	if len(cfg.Hosts) == 0 {
-		return nil, fmt.Errorf("no hosts defined in ~/.vibessh/hosts.yaml")
-	}
-
 	sort.Slice(cfg.Hosts, func(i, j int) bool {
 		return strings.ToLower(cfg.Hosts[i].Hostname) < strings.ToLower(cfg.Hosts[j].Hostname)
 	})
 
 	return cfg.Hosts, nil
+}
+
+// Append adds a node to ~/.vibessh/hosts.yaml, creating the file if needed.
+func Append(node Node) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home directory: %w", err)
+	}
+
+	dir := filepath.Join(home, ".vibessh")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+
+	path := filepath.Join(dir, "hosts.yaml")
+
+	var cfg config
+	if data, err := os.ReadFile(path); err == nil {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("parse hosts.yaml: %w", err)
+		}
+	}
+
+	cfg.Hosts = append(cfg.Hosts, node)
+
+	out, err := yaml.Marshal(&cfg)
+	if err != nil {
+		return fmt.Errorf("marshal hosts.yaml: %w", err)
+	}
+
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("write hosts.yaml: %w", err)
+	}
+
+	return nil
 }

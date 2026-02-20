@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/misael/vibessh/internal/hosts"
+	"github.com/misael/vibessh/internal/register"
 	vibessh "github.com/misael/vibessh/internal/ssh"
 	"github.com/misael/vibessh/internal/tui"
 )
@@ -23,7 +25,11 @@ func run() error {
 		// Interactive TUI picker.
 		nodes, err := hosts.Load()
 		if err != nil {
-			return err
+			if !errors.Is(err, hosts.ErrNoConfig) {
+				return err
+			}
+			// No config yet — open TUI with empty list; user can press 'a' to add.
+			nodes = []hosts.Node{}
 		}
 
 		selected, err := tui.Run(nodes)
@@ -38,6 +44,10 @@ func run() error {
 
 	case 2:
 		arg := os.Args[1]
+
+		if arg == "--register" {
+			return register.Run()
+		}
 
 		// Try to match against known hosts first.
 		nodes, err := hosts.Load()

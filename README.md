@@ -1,10 +1,27 @@
 # vibessh
 
-A terminal-native SSH client that uses Tailscale for node discovery.
+A terminal-native SSH client driven by a simple YAML config file.
 
 ## What it does
 
-`vibessh` lists your Tailscale peers in an interactive TUI and SSHes into whichever one you pick. Subsequent connections within 10 minutes reuse the same SSH master socket, making reconnects near-instant.
+`vibessh` lists your configured hosts in an interactive TUI and SSHes into whichever one you pick. Subsequent connections within 10 minutes reuse the same SSH master socket, making reconnects near-instant.
+
+## Setup
+
+Create `~/.vibessh/hosts.yaml`:
+
+```yaml
+hosts:
+  - hostname: mymac
+    address: your-vps.com   # or any reachable address
+    port: 2222              # optional, default 22
+    user: misael            # optional
+    os: darwin
+  - hostname: homelinux
+    address: homelinux.example.com
+    user: misael
+    os: linux
+```
 
 ## Usage
 
@@ -12,24 +29,55 @@ A terminal-native SSH client that uses Tailscale for node discovery.
 # Interactive picker — arrow keys to navigate, Enter to connect, q to quit
 vibessh
 
-# Direct connect by hostname prefix, DNS name prefix, or IP
+# Direct connect by hostname prefix
 vibessh mymac
-vibessh 100.64.0.5
+
+# Direct connect by exact address
+vibessh homelinux.example.com
+
+# Fall back to raw SSH for anything not in the config
+vibessh user@somehost.com
 ```
 
 ## Requirements
 
-- Tailscale must be running (`tailscale up`)
+- `~/.vibessh/hosts.yaml` must exist (see above)
 - `ssh` must be in `PATH`
-- You need read access to the Tailscale socket (`/var/run/tailscale/tailscaled.sock`)
 
 ## How it works
 
-1. Queries the local Tailscale daemon via its Unix socket to get your peer list
+1. Reads `~/.vibessh/hosts.yaml` to get your host list
 2. Shows an interactive picker (built with [bubbletea](https://github.com/charmbracelet/bubbletea))
 3. Calls `ssh` with ControlMaster flags, replacing the vibessh process entirely via `syscall.Exec`
 
 SSH ControlMaster sockets are stored in `~/.vibessh/ctrl/`. A socket persists for 10 minutes after the last connection closes, so reconnecting to the same host is instant.
+
+## Reaching machines behind NAT
+
+If your home machine isn't directly reachable, a cheap SSH reverse tunnel via a VPS works well from any client including Termux on Android.
+
+On the home machine, install `autossh` and create `~/.config/systemd/user/vibestunnel.service`:
+
+```ini
+[Unit]
+Description=vibessh reverse tunnel
+After=network-online.target
+
+[Service]
+ExecStart=autossh -M 0 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes -N \
+  -R 2222:localhost:22 YOU@your-vps.com
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now vibestunnel
+```
+
+On the VPS add `GatewayPorts yes` to `/etc/ssh/sshd_config` and restart sshd. Then set `address: your-vps.com` and `port: 2222` in your hosts.yaml.
 
 ## Build
 

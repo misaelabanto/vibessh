@@ -1,13 +1,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/misael/vibessh/internal/hosts"
 	vibessh "github.com/misael/vibessh/internal/ssh"
-	"github.com/misael/vibessh/internal/tailscale"
 	"github.com/misael/vibessh/internal/tui"
 )
 
@@ -19,13 +18,10 @@ func main() {
 }
 
 func run() error {
-	ctx := context.Background()
-	client := tailscale.NewClient("")
-
 	switch len(os.Args) {
 	case 1:
 		// Interactive TUI picker.
-		nodes, err := client.Peers(ctx, false)
+		nodes, err := hosts.Load()
 		if err != nil {
 			return err
 		}
@@ -43,8 +39,8 @@ func run() error {
 	case 2:
 		arg := os.Args[1]
 
-		// Try to match against known peers first.
-		nodes, err := client.Peers(ctx, true)
+		// Try to match against known hosts first.
+		nodes, err := hosts.Load()
 		if err == nil {
 			if node := matchNode(nodes, arg); node != nil {
 				return vibessh.Connect(*node)
@@ -55,23 +51,20 @@ func run() error {
 		return vibessh.ConnectRaw(arg)
 
 	default:
-		fmt.Fprintf(os.Stderr, "usage: vibessh [hostname|ip]\n")
+		fmt.Fprintf(os.Stderr, "usage: vibessh [hostname|address]\n")
 		os.Exit(2)
 		return nil
 	}
 }
 
-// matchNode finds the first node matching by hostname prefix, DNSName prefix, or exact IP.
-func matchNode(nodes []tailscale.Node, arg string) *tailscale.Node {
+// matchNode finds the first node matching by hostname prefix or exact address match.
+func matchNode(nodes []hosts.Node, arg string) *hosts.Node {
 	lower := strings.ToLower(arg)
 	for i, n := range nodes {
 		if strings.HasPrefix(strings.ToLower(n.Hostname), lower) {
 			return &nodes[i]
 		}
-		if strings.HasPrefix(strings.ToLower(n.DNSName), lower) {
-			return &nodes[i]
-		}
-		if n.IP.IsValid() && n.IP.String() == arg {
+		if strings.EqualFold(n.Address, arg) {
 			return &nodes[i]
 		}
 	}

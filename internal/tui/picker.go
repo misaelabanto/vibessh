@@ -19,6 +19,10 @@ var (
 	dimStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	emptyTitleStyle   = lipgloss.NewStyle().MarginLeft(2).Bold(true).Foreground(lipgloss.Color("205"))
+	emptyHintStyle    = lipgloss.NewStyle().MarginLeft(2).Foreground(lipgloss.Color("241"))
+	emptyKeyStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("170"))
+	emptyCodeStyle    = lipgloss.NewStyle().MarginLeft(4).Foreground(lipgloss.Color("243"))
 )
 
 var addKey = key.NewBinding(
@@ -32,7 +36,7 @@ type nodeItem struct {
 }
 
 func (n nodeItem) Title() string {
-	return n.node.Hostname
+	return n.node.Name
 }
 
 func (n nodeItem) Description() string {
@@ -47,7 +51,7 @@ func (n nodeItem) Description() string {
 }
 
 func (n nodeItem) FilterValue() string {
-	return n.node.Hostname + " " + n.node.Address
+	return n.node.Name + " " + n.node.Address
 }
 
 // itemDelegate renders each list item.
@@ -185,7 +189,21 @@ func (m Model) View() string {
 	if m.state == stateForm {
 		return m.form.View()
 	}
+	if len(m.list.Items()) == 0 {
+		return m.emptyView()
+	}
 	return m.list.View()
+}
+
+func (m Model) emptyView() string {
+	return emptyTitleStyle.Render("vibessh — No hosts configured") + "\n\n" +
+		emptyHintStyle.Render("Press "+emptyKeyStyle.Render("a")+" to add your first host interactively, or create:") + "\n\n" +
+		emptyCodeStyle.Render("~/.vibessh/hosts.yaml") + "\n\n" +
+		emptyCodeStyle.Render("hosts:") + "\n" +
+		emptyCodeStyle.Render("  - name: my-server") + "\n" +
+		emptyCodeStyle.Render("    address:  192.168.1.100") + "\n" +
+		emptyCodeStyle.Render("    user:     ubuntu") + "\n\n" +
+		emptyHintStyle.Render("Press "+emptyKeyStyle.Render("q")+" to quit.")
 }
 
 // textinputBlink returns the Blink command for textinput.

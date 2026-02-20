@@ -18,7 +18,7 @@ var (
 	formHelpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginTop(1)
 )
 
-var fieldLabels = [5]string{"Hostname", "Address", "Port", "User", "OS"}
+var fieldLabels = [5]string{"Name", "Address", "Port", "User", "OS"}
 
 type formModel struct {
 	inputs  [5]textinput.Model
@@ -87,7 +87,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 
 func (f formModel) validate() string {
 	if strings.TrimSpace(f.inputs[0].Value()) == "" {
-		return "Hostname is required"
+		return "Name is required"
 	}
 	if strings.TrimSpace(f.inputs[1].Value()) == "" {
 		return "Address is required"
@@ -107,7 +107,7 @@ func (f formModel) toNode() hosts.Node {
 		port, _ = strconv.Atoi(v)
 	}
 	return hosts.Node{
-		Hostname: strings.TrimSpace(f.inputs[0].Value()),
+		Name: strings.TrimSpace(f.inputs[0].Value()),
 		Address:  strings.TrimSpace(f.inputs[1].Value()),
 		Port:     port,
 		User:     strings.TrimSpace(f.inputs[3].Value()),

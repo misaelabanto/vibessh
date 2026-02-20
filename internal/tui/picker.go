@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/misael/vibessh/internal/tailscale"
+	"github.com/misael/vibessh/internal/hosts"
 )
 
 var (
@@ -22,7 +22,7 @@ var (
 
 // nodeItem wraps a Node to satisfy list.Item and list.DefaultItem.
 type nodeItem struct {
-	node tailscale.Node
+	node hosts.Node
 }
 
 func (n nodeItem) Title() string {
@@ -30,21 +30,18 @@ func (n nodeItem) Title() string {
 }
 
 func (n nodeItem) Description() string {
-	parts := []string{}
-	if n.node.IP.IsValid() {
-		parts = append(parts, n.node.IP.String())
-	}
+	parts := []string{n.node.Address}
 	if n.node.OS != "" {
 		parts = append(parts, n.node.OS)
 	}
-	if n.node.DNSName != "" {
-		parts = append(parts, dimStyle.Render(n.node.DNSName))
+	if n.node.Port != 0 && n.node.Port != 22 {
+		parts = append(parts, fmt.Sprintf("port %d", n.node.Port))
 	}
 	return strings.Join(parts, "  ")
 }
 
 func (n nodeItem) FilterValue() string {
-	return n.node.Hostname + " " + n.node.IP.String() + " " + n.node.DNSName
+	return n.node.Hostname + " " + n.node.Address
 }
 
 // itemDelegate renders each list item.
@@ -76,11 +73,11 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 // Model is the bubbletea application model.
 type Model struct {
 	list     list.Model
-	selected *tailscale.Node
+	selected *hosts.Node
 	quitting bool
 }
 
-func newModel(nodes []tailscale.Node) Model {
+func newModel(nodes []hosts.Node) Model {
 	items := make([]list.Item, len(nodes))
 	for i, n := range nodes {
 		items[i] = nodeItem{node: n}
@@ -137,7 +134,7 @@ func (m Model) View() string {
 }
 
 // Run displays the TUI picker and returns the selected node, or nil if cancelled.
-func Run(nodes []tailscale.Node) (*tailscale.Node, error) {
+func Run(nodes []hosts.Node) (*hosts.Node, error) {
 	m := newModel(nodes)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()

@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,6 +19,11 @@ var (
 	dimStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+)
+
+var addKey = key.NewBinding(
+	key.WithKeys("a"),
+	key.WithHelp("a", "add host"),
 )
 
 // nodeItem wraps a Node to satisfy list.Item and list.DefaultItem.
@@ -70,9 +76,18 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	}
 }
 
+type pickerState int
+
+const (
+	stateList pickerState = iota
+	stateForm
+)
+
 // Model is the bubbletea application model.
 type Model struct {
 	list     list.Model
+	form     formModel
+	state    pickerState
 	selected *hosts.Node
 	quitting bool
 }
@@ -89,6 +104,8 @@ func newModel(nodes []hosts.Node) Model {
 	l.Styles.PaginationStyle = paginationStyle
 	l.Styles.HelpStyle = helpStyle
 	l.DisableQuitKeybindings()
+	l.AdditionalShortHelpKeys = func() []key.Binding { return []key.Binding{addKey} }
+	l.AdditionalFullHelpKeys = func() []key.Binding { return []key.Binding{addKey} }
 
 	return Model{list: l}
 }
@@ -98,18 +115,36 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+	if msg, ok := msg.(tea.WindowSizeMsg); ok {
 		m.list.SetSize(msg.Width, msg.Height)
+		return m, nil
+	}
 
+	switch m.state {
+	case stateList:
+		return m.updateList(msg)
+	case stateForm:
+		return m.updateForm(msg)
+	}
+	return m, nil
+}
+
+func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
 
+		case "a":
+			if m.list.FilterState() != list.Filtering {
+				m.state = stateForm
+				m.form = newFormModel()
+				return m, textinputBlink()
+			}
+
 		case "enter":
-			// Guard: don't trigger when the user is typing a filter.
 			if m.list.FilterState() == list.Filtering {
 				break
 			}
@@ -126,11 +161,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.form, cmd = m.form.Update(msg)
+
+	if m.form.done {
+		if m.form.result != nil {
+			// Persist to disk (best-effort).
+			_ = hosts.Append(*m.form.result)
+			m.list.InsertItem(len(m.list.Items()), nodeItem{node: *m.form.result})
+		}
+		m.state = stateList
+		m.form = formModel{}
+	}
+
+	return m, cmd
+}
+
 func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
+	if m.state == stateForm {
+		return m.form.View()
+	}
 	return m.list.View()
+}
+
+// textinputBlink returns the Blink command for textinput.
+func textinputBlink() tea.Cmd {
+	return newFormModel().Init()
 }
 
 // Run displays the TUI picker and returns the selected node, or nil if cancelled.

@@ -16,7 +16,7 @@ var ErrNoConfig = errors.New("no config file")
 
 // Node represents a host entry from the config file.
 type Node struct {
-	Hostname string `yaml:"hostname"`
+	Name string `yaml:"name"`
 	Address  string `yaml:"address"`
 	Port     int    `yaml:"port,omitempty"`
 	User     string `yaml:"user,omitempty"`
@@ -49,7 +49,7 @@ func Load() ([]Node, error) {
 	}
 
 	sort.Slice(cfg.Hosts, func(i, j int) bool {
-		return strings.ToLower(cfg.Hosts[i].Hostname) < strings.ToLower(cfg.Hosts[j].Hostname)
+		return strings.ToLower(cfg.Hosts[i].Name) < strings.ToLower(cfg.Hosts[j].Name)
 	})
 
 	return cfg.Hosts, nil

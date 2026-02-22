@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/misael/vibessh/internal/hosts"
-	"github.com/misael/vibessh/internal/register"
-	vibessh "github.com/misael/vibessh/internal/ssh"
-	"github.com/misael/vibessh/internal/tui"
+	"github.com/misaelabanto/vibessh/internal/hosts"
+	"github.com/misaelabanto/vibessh/internal/register"
+	vibessh "github.com/misaelabanto/vibessh/internal/ssh"
+	"github.com/misaelabanto/vibessh/internal/tui"
 )
 
 func main() {

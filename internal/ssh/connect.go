@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/misael/vibessh/internal/hosts"
+	"github.com/misaelabanto/vibessh/internal/hosts"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/misael/vibessh/internal/hosts"
+	"github.com/misaelabanto/vibessh/internal/hosts"
 )
 
 var (

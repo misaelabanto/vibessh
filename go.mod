@@ -1,4 +1,4 @@
-module github.com/misael/vibessh
+module github.com/misaelabanto/vibessh
 
 go 1.22
 

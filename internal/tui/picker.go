@@ -23,7 +23,17 @@ var (
 	emptyHintStyle    = lipgloss.NewStyle().MarginLeft(2).Foreground(lipgloss.Color("241"))
 	emptyKeyStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("170"))
 	emptyCodeStyle    = lipgloss.NewStyle().MarginLeft(4).Foreground(lipgloss.Color("243"))
+	bannerStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 )
+
+const banner = "" +
+	"            __                              __         \n" +
+	"         __/\\ \\                            /\\ \\        \n" +
+	" __  __ /\\_\\ \\ \\____     __    ____    ____\\ \\ \\___    \n" +
+	"/\\ \\/\\ \\\\/\\ \\ \\ '__`\\  /'__`\\ /',__\\  /',__\\\\ \\  _ `\\  \n" +
+	"\\ \\ \\_/ |\\ \\ \\ \\ \\L\\ \\/\\  __//\\__, `\\/\\__, `\\\\ \\ \\ \\ \\ \n" +
+	" \\ \\___/  \\ \\_\\ \\_,__/\\ \\____\\/\\____/\\/\\____/ \\ \\_\\ \\_\\\n" +
+	"  \\/__/    \\/_/\\/___/  \\/____/\\/___/  \\/___/   \\/_/\\/_/"
 
 var addKey = key.NewBinding(
 	key.WithKeys("a"),
@@ -120,7 +130,8 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(tea.WindowSizeMsg); ok {
-		m.list.SetSize(msg.Width, msg.Height)
+		bannerHeight := lipgloss.Height(bannerStyle.Render(banner))
+		m.list.SetSize(msg.Width, msg.Height-bannerHeight-1)
 		return m, nil
 	}
 
@@ -189,10 +200,11 @@ func (m Model) View() string {
 	if m.state == stateForm {
 		return m.form.View()
 	}
+	b := bannerStyle.Render(banner)
 	if len(m.list.Items()) == 0 {
-		return m.emptyView()
+		return lipgloss.JoinVertical(lipgloss.Left, b, m.emptyView())
 	}
-	return m.list.View()
+	return lipgloss.JoinVertical(lipgloss.Left, b, m.list.View())
 }
 
 func (m Model) emptyView() string {

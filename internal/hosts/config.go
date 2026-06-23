@@ -16,67 +16,61 @@ var ErrNoConfig = errors.New("no config file")
 
 // Node represents a host entry from the config file.
 type Node struct {
-	Name string `yaml:"name"`
-	Address  string `yaml:"address"`
-	Port     int    `yaml:"port,omitempty"`
-	User     string `yaml:"user,omitempty"`
-	OS       string `yaml:"os,omitempty"`
+	Name    string `yaml:"name"`
+	Address string `yaml:"address"`
+	Port    int    `yaml:"port,omitempty"`
+	User    string `yaml:"user,omitempty"`
+	OS      string `yaml:"os,omitempty"`
 }
 
 type config struct {
 	Hosts []Node `yaml:"hosts"`
 }
 
-// Load reads ~/.vibessh/hosts.yaml and returns the sorted list of nodes.
-func Load() ([]Node, error) {
+// configPath returns the path to ~/.vibessh/hosts.yaml.
+func configPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("cannot determine home directory: %w", err)
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".vibessh", "hosts.yaml"), nil
+}
+
+// readConfig reads and parses the config file. A missing file yields an empty
+// config (no error) so callers can create it on the next write.
+func readConfig() (config, error) {
+	var cfg config
+
+	path, err := configPath()
+	if err != nil {
+		return cfg, err
 	}
 
-	path := filepath.Join(home, ".vibessh", "hosts.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, ErrNoConfig
+			return cfg, nil
 		}
-		return nil, fmt.Errorf("read config: %w", err)
+		return cfg, fmt.Errorf("read config: %w", err)
 	}
 
-	var cfg config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse ~/.vibessh/hosts.yaml: %w", err)
+		return cfg, fmt.Errorf("parse ~/.vibessh/hosts.yaml: %w", err)
 	}
 
-	sort.Slice(cfg.Hosts, func(i, j int) bool {
-		return strings.ToLower(cfg.Hosts[i].Name) < strings.ToLower(cfg.Hosts[j].Name)
-	})
-
-	return cfg.Hosts, nil
+	return cfg, nil
 }
 
-// Append adds a node to ~/.vibessh/hosts.yaml, creating the file if needed.
-func Append(node Node) error {
-	home, err := os.UserHomeDir()
+// writeConfig marshals and writes the config file, creating ~/.vibessh if needed.
+func writeConfig(cfg config) error {
+	path, err := configPath()
 	if err != nil {
-		return fmt.Errorf("cannot determine home directory: %w", err)
+		return err
 	}
 
-	dir := filepath.Join(home, ".vibessh")
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-
-	path := filepath.Join(dir, "hosts.yaml")
-
-	var cfg config
-	if data, err := os.ReadFile(path); err == nil {
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			return fmt.Errorf("parse hosts.yaml: %w", err)
-		}
-	}
-
-	cfg.Hosts = append(cfg.Hosts, node)
 
 	out, err := yaml.Marshal(&cfg)
 	if err != nil {
@@ -88,4 +82,74 @@ func Append(node Node) error {
 	}
 
 	return nil
+}
+
+// Load reads ~/.vibessh/hosts.yaml and returns the sorted list of nodes.
+func Load() ([]Node, error) {
+	path, err := configPath()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, ErrNoConfig
+	}
+
+	cfg, err := readConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(cfg.Hosts, func(i, j int) bool {
+		return strings.ToLower(cfg.Hosts[i].Name) < strings.ToLower(cfg.Hosts[j].Name)
+	})
+
+	return cfg.Hosts, nil
+}
+
+// Append adds a node to ~/.vibessh/hosts.yaml, creating the file if needed.
+func Append(node Node) error {
+	cfg, err := readConfig()
+	if err != nil {
+		return err
+	}
+
+	cfg.Hosts = append(cfg.Hosts, node)
+	return writeConfig(cfg)
+}
+
+// Update replaces the host named oldName with node, allowing the name to change.
+// It returns an error if no host matches oldName.
+func Update(oldName string, node Node) error {
+	cfg, err := readConfig()
+	if err != nil {
+		return err
+	}
+
+	for i := range cfg.Hosts {
+		if cfg.Hosts[i].Name == oldName {
+			cfg.Hosts[i] = node
+			return writeConfig(cfg)
+		}
+	}
+
+	return fmt.Errorf("host %q not found", oldName)
+}
+
+// Delete removes the host with the given name. It returns an error if no host
+// matches.
+func Delete(name string) error {
+	cfg, err := readConfig()
+	if err != nil {
+		return err
+	}
+
+	for i := range cfg.Hosts {
+		if cfg.Hosts[i].Name == name {
+			cfg.Hosts = append(cfg.Hosts[:i], cfg.Hosts[i+1:]...)
+			return writeConfig(cfg)
+		}
+	}
+
+	return fmt.Errorf("host %q not found", name)
 }

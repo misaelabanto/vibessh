@@ -26,7 +26,8 @@ hosts:
 ## Usage
 
 ```bash
-# Interactive picker — arrow keys to navigate, Enter to connect, q to quit
+# Interactive picker: arrow keys to navigate, Enter to connect, q to quit
+# a add a host, e edit the selected host, d delete it (with confirmation)
 vibessh
 
 # Direct connect by hostname prefix

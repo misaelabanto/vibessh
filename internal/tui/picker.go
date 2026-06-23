@@ -24,6 +24,8 @@ var (
 	emptyKeyStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("170"))
 	emptyCodeStyle    = lipgloss.NewStyle().MarginLeft(4).Foreground(lipgloss.Color("243"))
 	bannerStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	confirmStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	confirmNameStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("170"))
 )
 
 const banner = "" +
@@ -38,6 +40,16 @@ const banner = "" +
 var addKey = key.NewBinding(
 	key.WithKeys("a"),
 	key.WithHelp("a", "add host"),
+)
+
+var editKey = key.NewBinding(
+	key.WithKeys("e"),
+	key.WithHelp("e", "edit host"),
+)
+
+var deleteKey = key.NewBinding(
+	key.WithKeys("d"),
+	key.WithHelp("d", "delete host"),
 )
 
 // nodeItem wraps a Node to satisfy list.Item and list.DefaultItem.
@@ -95,15 +107,18 @@ type pickerState int
 const (
 	stateList pickerState = iota
 	stateForm
+	stateConfirmDelete
 )
 
 // Model is the bubbletea application model.
 type Model struct {
-	list     list.Model
-	form     formModel
-	state    pickerState
-	selected *hosts.Node
-	quitting bool
+	list        list.Model
+	form        formModel
+	state       pickerState
+	selected    *hosts.Node
+	quitting    bool
+	confirmName string
+	status      string
 }
 
 func newModel(nodes []hosts.Node) Model {
@@ -118,8 +133,8 @@ func newModel(nodes []hosts.Node) Model {
 	l.Styles.PaginationStyle = paginationStyle
 	l.Styles.HelpStyle = helpStyle
 	l.DisableQuitKeybindings()
-	l.AdditionalShortHelpKeys = func() []key.Binding { return []key.Binding{addKey} }
-	l.AdditionalFullHelpKeys = func() []key.Binding { return []key.Binding{addKey} }
+	l.AdditionalShortHelpKeys = func() []key.Binding { return []key.Binding{addKey, editKey, deleteKey} }
+	l.AdditionalFullHelpKeys = func() []key.Binding { return []key.Binding{addKey, editKey, deleteKey} }
 
 	return Model{list: l}
 }
@@ -140,6 +155,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateList(msg)
 	case stateForm:
 		return m.updateForm(msg)
+	case stateConfirmDelete:
+		return m.updateConfirmDelete(msg)
 	}
 	return m, nil
 }
@@ -154,9 +171,30 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "a":
 			if m.list.FilterState() != list.Filtering {
+				m.status = ""
 				m.state = stateForm
 				m.form = newFormModel()
 				return m, textinputBlink()
+			}
+
+		case "e":
+			if m.list.FilterState() != list.Filtering {
+				if item, ok := m.list.SelectedItem().(nodeItem); ok {
+					m.status = ""
+					m.state = stateForm
+					m.form = newEditFormModel(item.node)
+					return m, textinputBlink()
+				}
+			}
+
+		case "d":
+			if m.list.FilterState() != list.Filtering {
+				if item, ok := m.list.SelectedItem().(nodeItem); ok {
+					m.status = ""
+					m.confirmName = item.node.Name
+					m.state = stateConfirmDelete
+					return m, nil
+				}
 			}
 
 		case "enter":
@@ -182,15 +220,65 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.form.done {
 		if m.form.result != nil {
-			// Persist to disk (best-effort).
-			_ = hosts.Append(*m.form.result)
-			m.list.InsertItem(len(m.list.Items()), nodeItem{node: *m.form.result})
+			node := *m.form.result
+			if m.form.mode == modeEdit {
+				if err := hosts.Update(m.form.originalName, node); err != nil {
+					m.status = "Could not save host: " + err.Error()
+				} else {
+					m.replaceItem(m.form.originalName, node)
+				}
+			} else {
+				if err := hosts.Append(node); err != nil {
+					m.status = "Could not save host: " + err.Error()
+				} else {
+					m.list.InsertItem(len(m.list.Items()), nodeItem{node: node})
+				}
+			}
 		}
 		m.state = stateList
 		m.form = formModel{}
 	}
 
 	return m, cmd
+}
+
+// replaceItem swaps the list item named oldName with one holding node.
+func (m *Model) replaceItem(oldName string, node hosts.Node) {
+	for i, it := range m.list.Items() {
+		if ni, ok := it.(nodeItem); ok && ni.node.Name == oldName {
+			m.list.SetItem(i, nodeItem{node: node})
+			return
+		}
+	}
+}
+
+func (m Model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "y", "Y":
+			if err := hosts.Delete(m.confirmName); err != nil {
+				m.status = "Could not delete host: " + err.Error()
+			} else {
+				m.removeItem(m.confirmName)
+			}
+			m.confirmName = ""
+			m.state = stateList
+		case "n", "N", "esc", "q", "ctrl+c":
+			m.confirmName = ""
+			m.state = stateList
+		}
+	}
+	return m, nil
+}
+
+// removeItem deletes the list item with the given name, if present.
+func (m *Model) removeItem(name string) {
+	for i, it := range m.list.Items() {
+		if ni, ok := it.(nodeItem); ok && ni.node.Name == name {
+			m.list.RemoveItem(i)
+			return
+		}
+	}
 }
 
 func (m Model) View() string {
@@ -200,11 +288,31 @@ func (m Model) View() string {
 	if m.state == stateForm {
 		return m.form.View()
 	}
+
 	b := bannerStyle.Render(banner)
-	if len(m.list.Items()) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, b, m.emptyView())
+	sections := []string{b}
+	if m.status != "" {
+		sections = append(sections, errorStyle.Render(m.status))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, b, m.list.View())
+
+	switch {
+	case m.state == stateConfirmDelete:
+		sections = append(sections, m.confirmView())
+	case len(m.list.Items()) == 0:
+		sections = append(sections, m.emptyView())
+	default:
+		sections = append(sections, m.list.View())
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func (m Model) confirmView() string {
+	prompt := confirmStyle.Render("Delete host ") +
+		confirmNameStyle.Render(`"`+m.confirmName+`"`) +
+		confirmStyle.Render("? (y/n)")
+	return "\n  " + prompt + "\n\n" +
+		formHelpStyle.Render("  y delete • n/esc cancel")
 }
 
 func (m Model) emptyView() string {

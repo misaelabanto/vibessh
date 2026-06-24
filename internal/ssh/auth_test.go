@@ -75,10 +75,11 @@ func TestInstallArgs(t *testing.T) {
 func TestRemoteInstallCommand(t *testing.T) {
 	cmd := remoteInstallCommand("ssh-ed25519 AAAAKEY vibessh@me")
 
-	// The snippet must run under bash, not the remote login shell, so a fish
-	// (or other non-POSIX) login shell never tries to parse its sh syntax.
-	if !strings.HasPrefix(cmd, "bash -c ") {
-		t.Errorf("remote command should run under bash, got:\n%s", cmd)
+	// The snippet must run under a POSIX shell, not the remote login shell, so a
+	// fish (or other non-POSIX) login shell never tries to parse its sh syntax.
+	// sh is used rather than bash so minimal hosts (Alpine/BusyBox) still work.
+	if !strings.HasPrefix(cmd, "sh -c ") {
+		t.Errorf("remote command should run under sh, got:\n%s", cmd)
 	}
 
 	for _, want := range []string{

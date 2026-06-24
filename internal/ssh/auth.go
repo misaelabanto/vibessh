@@ -162,13 +162,28 @@ func installArgs(target, knownHosts string, extraArgs []string, pubKey string) [
 	return args
 }
 
-// remoteInstallCommand returns the shell snippet that appends pubKey to the
-// remote authorized_keys with correct permissions, deduping if already present.
+// remoteInstallCommand returns the command to run on the remote host that
+// appends pubKey to authorized_keys with correct permissions, deduping if
+// already present.
+//
+// The snippet uses POSIX sh syntax (brace grouping, &&/||) that non-POSIX login
+// shells such as fish cannot parse. Since ssh executes a remote command through
+// the user's login shell, we wrap the snippet in `bash -c '...'` so it always
+// runs under bash regardless of which shell the remote account uses.
 func remoteInstallCommand(pubKey string) string {
-	return fmt.Sprintf(
+	script := fmt.Sprintf(
 		"umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && "+
 			"{ grep -qxF %q ~/.ssh/authorized_keys || printf '%%s\\n' %q >> ~/.ssh/authorized_keys; } && "+
 			"chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys",
 		pubKey, pubKey,
 	)
+	return "bash -c " + shellSingleQuote(script)
+}
+
+// shellSingleQuote wraps s in single quotes for safe embedding in a remote
+// command line, escaping any embedded single quotes. The '\'' sequence is
+// understood by bash, sh, zsh, and fish alike, so the wrapped string survives
+// the remote login shell intact before bash -c re-parses it.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

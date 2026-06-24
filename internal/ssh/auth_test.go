@@ -75,6 +75,12 @@ func TestInstallArgs(t *testing.T) {
 func TestRemoteInstallCommand(t *testing.T) {
 	cmd := remoteInstallCommand("ssh-ed25519 AAAAKEY vibessh@me")
 
+	// The snippet must run under bash, not the remote login shell, so a fish
+	// (or other non-POSIX) login shell never tries to parse its sh syntax.
+	if !strings.HasPrefix(cmd, "bash -c ") {
+		t.Errorf("remote command should run under bash, got:\n%s", cmd)
+	}
+
 	for _, want := range []string{
 		"ssh-ed25519 AAAAKEY vibessh@me",
 		"authorized_keys",
@@ -85,6 +91,24 @@ func TestRemoteInstallCommand(t *testing.T) {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("remote command missing %q in:\n%s", want, cmd)
 		}
+	}
+}
+
+func TestShellSingleQuote(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"no quotes", "echo hi", "'echo hi'"},
+		{"single quote", "printf '%s'", `'printf '\''%s'\'''`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shellSingleQuote(tc.in); got != tc.want {
+				t.Errorf("shellSingleQuote(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 

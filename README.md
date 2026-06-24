@@ -4,7 +4,7 @@ A terminal-native SSH client driven by a simple YAML config file.
 
 ## What it does
 
-`vibessh` lists your configured hosts in an interactive TUI and SSHes into whichever one you pick. Subsequent connections within 10 minutes reuse the same SSH master socket, making reconnects near-instant.
+`vibessh` lists your configured hosts in an interactive TUI and SSHes into whichever one you pick. It sets up passwordless key auth automatically on first connect, so you type a host's password once and never again. Subsequent connections within 10 minutes also reuse the same SSH master socket, making reconnects near-instant.
 
 ## Setup
 
@@ -40,16 +40,31 @@ vibessh homelinux.example.com
 vibessh user@somehost.com
 ```
 
+## Passwordless login
+
+The first time you connect to a host that still asks for a password, vibessh sets up key-based auth for you:
+
+1. It generates a managed ed25519 key in `~/.vibessh/keys/` on first run (once, no passphrase). Your `~/.ssh` is never touched.
+2. It installs the public key on the host over a single password-authenticated session. You type the host password once.
+3. Every later connection uses the key, so you are never prompted again.
+
+This is automatic: just pick the host. There is no command to remember and no `hosts.yaml` change. It is also self-healing: if you rebuild a server and the key is gone, the next connection re-installs it.
+
+Host-key trust is kept in `~/.vibessh/known_hosts` (new hosts are accepted automatically, changed keys are still rejected), so vibessh stays out of `~/.ssh` entirely.
+
+If a host only allows key auth and has no key installed yet, vibessh cannot install the key for you. It prints the public key so you can add it to the host's `~/.ssh/authorized_keys` manually.
+
 ## Requirements
 
 - `~/.vibessh/hosts.yaml` must exist (see above)
-- `ssh` must be in `PATH`
+- `ssh` and `ssh-keygen` (which ships with it) must be in `PATH`
 
 ## How it works
 
 1. Reads `~/.vibessh/hosts.yaml` to get your host list
 2. Shows an interactive picker (built with [bubbletea](https://github.com/charmbracelet/bubbletea))
-3. Calls `ssh` with ControlMaster flags, replacing the vibessh process entirely via `syscall.Exec`
+3. Ensures key auth: opens a key-only ControlMaster connection, and if the host still needs a password, installs the managed public key over one password session before retrying
+4. Calls `ssh` with ControlMaster flags, replacing the vibessh process entirely via `syscall.Exec`
 
 SSH ControlMaster sockets are stored in `~/.vibessh/ctrl/`. A socket persists for 10 minutes after the last connection closes, so reconnecting to the same host is instant.
 

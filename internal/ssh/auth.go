@@ -3,6 +3,7 @@ package ssh
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -41,14 +42,10 @@ func ensureKeyAuth(target string, extraArgs []string) (string, error) {
 		return "", err
 	}
 
-	kind, stderr, err := openMaster(target, keyPath, extraArgs)
-	switch kind {
+	switch openMaster(target, keyPath, extraArgs) {
 	case connectOK:
 		return keyPath, nil
 	case connectUnreachable:
-		if stderr != "" {
-			fmt.Fprint(os.Stderr, stderr)
-		}
 		return "", fmt.Errorf("cannot reach %s", target)
 	}
 
@@ -57,11 +54,7 @@ func ensureKeyAuth(target string, extraArgs []string) (string, error) {
 		return "", err
 	}
 
-	kind, stderr, _ = openMaster(target, keyPath, extraArgs)
-	if kind != connectOK {
-		if stderr != "" {
-			fmt.Fprint(os.Stderr, stderr)
-		}
+	if openMaster(target, keyPath, extraArgs) != connectOK {
 		return "", fmt.Errorf("key installed but auth still failing - check remote ~/.ssh permissions")
 	}
 	return keyPath, nil
@@ -70,35 +63,54 @@ func ensureKeyAuth(target string, extraArgs []string) (string, error) {
 // openMaster opens (or reuses) the background ControlMaster socket using only
 // key auth. It never prompts for a password (BatchMode), so a host that still
 // needs the key fails fast and cleanly.
-func openMaster(target, keyPath string, extraArgs []string) (failureKind, string, error) {
+func openMaster(target, keyPath string, extraArgs []string) failureKind {
 	ctrlDir, err := controlDir()
 	if err != nil {
-		return connectUnreachable, "", err
+		fmt.Fprintln(os.Stderr, err)
+		return connectUnreachable
 	}
 	if err := os.MkdirAll(ctrlDir, 0700); err != nil {
-		return connectUnreachable, "", fmt.Errorf("create control dir: %w", err)
+		fmt.Fprintf(os.Stderr, "create control dir: %v\n", err)
+		return connectUnreachable
 	}
 	knownHosts, err := knownHostsFile()
 	if err != nil {
-		return connectUnreachable, "", err
+		fmt.Fprintln(os.Stderr, err)
+		return connectUnreachable
 	}
 
 	cmd := exec.Command("ssh", masterArgs(target, keyPath, ctrlDir, knownHosts, extraArgs)...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
+	stderr, runErr := runProbe(cmd, os.Stderr)
 
 	exitCode := 0
 	if runErr != nil {
 		exitErr, ok := runErr.(*exec.ExitError)
 		if !ok {
 			// ssh failed to start (e.g. not in PATH).
-			return connectUnreachable, stderr.String(), runErr
+			fmt.Fprintln(os.Stderr, runErr)
+			return connectUnreachable
 		}
 		exitCode = exitErr.ExitCode()
 	}
 
-	return classifyFailure(exitCode, stderr.String()), stderr.String(), runErr
+	return classifyFailure(exitCode, stderr)
+}
+
+// runProbe runs the probe command, streaming its stderr to live as it arrives
+// while also capturing a copy for classification.
+//
+// The streaming matters as much as the capturing: a server can write to stderr
+// and then block indefinitely. Tailscale SSH check mode does exactly that,
+// printing an SSO URL and waiting for the user to visit it before completing
+// authentication. Buffering that output until the command exits would leave
+// vibessh looking frozen with nothing on screen. The tradeoff is that routine
+// probe noise ("Permission denied (publickey).") is now visible just before the
+// key-install prompt.
+func runProbe(cmd *exec.Cmd, live io.Writer) (string, error) {
+	var captured bytes.Buffer
+	cmd.Stderr = io.MultiWriter(live, &captured)
+	runErr := cmd.Run()
+	return captured.String(), runErr
 }
 
 // masterArgs builds the argument list for the key-only master-open probe.

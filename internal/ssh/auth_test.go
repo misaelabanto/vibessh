@@ -1,8 +1,12 @@
 package ssh
 
 import (
+	"bytes"
+	"os/exec"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestClassifyFailure(t *testing.T) {
@@ -110,6 +114,70 @@ func TestShellSingleQuote(t *testing.T) {
 				t.Errorf("shellSingleQuote(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe for concurrent writes and reads, so a test
+// can inspect streamed output while the probe command is still running.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// TestRunProbeStreamsStderrWhileBlocked covers the Tailscale SSH check-mode
+// case: the server writes an SSO URL to stderr and then blocks indefinitely
+// waiting for the user to visit it. The probe must show that output while it
+// waits, not buffer it until the command exits.
+func TestRunProbeStreamsStderrWhileBlocked(t *testing.T) {
+	const notice = "# To authenticate, visit: https://login.tailscale.com/a/deadbeef"
+
+	// `exec sleep` replaces the shell, so killing the process really ends the
+	// probe; a forked sleep would keep the inherited stderr pipe open and hang
+	// cmd.Run past the kill.
+	cmd := exec.Command("sh", "-c", "printf '%s\\n' "+shellSingleQuote(notice)+" >&2; exec sleep 5")
+	live := &syncBuffer{}
+
+	done := make(chan string, 1)
+	go func() {
+		captured, _ := runProbe(cmd, live)
+		done <- captured
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for !strings.Contains(live.String(), notice) {
+		select {
+		case <-deadline:
+			t.Fatalf("stderr was not streamed while the probe was still blocked; live output so far: %q", live.String())
+		case <-done:
+			t.Fatalf("probe exited before the streaming assertion could run")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("kill probe: %v", err)
+	}
+
+	select {
+	case captured := <-done:
+		if !strings.Contains(captured, notice) {
+			t.Errorf("captured stderr = %q, want it to contain %q", captured, notice)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runProbe did not return after the probe was killed")
 	}
 }
 
